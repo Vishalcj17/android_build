@@ -1595,8 +1595,6 @@ def WriteBlockIncrementalOTAPackage(target_zip, source_zip, output_file):
       "/tmp/boot.img", "boot.img", OPTIONS.source_tmp, "BOOT", source_info)
   target_boot = common.GetBootableImage(
       "/tmp/boot.img", "boot.img", OPTIONS.target_tmp, "BOOT", target_info)
-  updating_boot = (not OPTIONS.two_step and
-                   (source_boot.data != target_boot.data))
 
   target_recovery = common.GetBootableImage(
       "/tmp/recovery.img", "recovery.img", OPTIONS.target_tmp, "RECOVERY")
@@ -1721,8 +1719,6 @@ else if get_stage("%(bcb_dev)s") != "3/3" then
 
   device_specific.IncrementalOTA_VerifyBegin()
 
-  WriteFingerprintAssertion(script, target_info, source_info)
-
   # Check the required cache size (i.e. stashed blocks).
   size = []
   if system_diff:
@@ -1730,29 +1726,7 @@ else if get_stage("%(bcb_dev)s") != "3/3" then
   if vendor_diff:
     size.append(vendor_diff.required_cache)
 
-  if updating_boot:
-    boot_type, boot_device = common.GetTypeAndDevice("/boot", source_info)
-    d = common.Difference(target_boot, source_boot)
-    _, _, d = d.ComputePatch()
-    if d is None:
-      include_full_boot = True
-      common.ZipWriteStr(output_zip, "boot.img", target_boot.data)
-    else:
-      include_full_boot = False
-
-      logger.info(
-          "boot      target: %d  source: %d  diff: %d", target_boot.size,
-          source_boot.size, len(d))
-
-      common.ZipWriteStr(output_zip, "boot.img.p", d)
-
-      script.PatchPartitionCheck(
-          "{}:{}:{}:{}".format(
-              boot_type, boot_device, target_boot.size, target_boot.sha1),
-          "{}:{}:{}:{}".format(
-              boot_type, boot_device, source_boot.size, source_boot.sha1))
-
-      size.append(target_boot.size)
+ common.ZipWriteStr(output_zip, "boot.img", target_boot.data)
 
   if size:
     script.CacheFreeSpaceCheck(max(size))
@@ -1814,32 +1788,8 @@ else
                              progress=progress_dict.get(block_diff.partition),
                              write_verify_script=OPTIONS.verify)
 
-  if OPTIONS.two_step:
-    common.ZipWriteStr(output_zip, "boot.img", target_boot.data)
-    script.WriteRawImage("/boot", "boot.img")
-    logger.info("writing full boot image (forced by two-step mode)")
-
-  if not OPTIONS.two_step:
-    if updating_boot:
-      if include_full_boot:
-        logger.info("boot image changed; including full.")
-        script.Print("Installing boot image...")
-        script.WriteRawImage("/boot", "boot.img")
-      else:
-        # Produce the boot image by applying a patch to the current
-        # contents of the boot partition, and write it back to the
-        # partition.
-        logger.info("boot image changed; including patch.")
-        script.Print("Patching boot image...")
-        script.ShowProgress(0.1, 10)
-        script.PatchPartition(
-            '{}:{}:{}:{}'.format(
-                boot_type, boot_device, target_boot.size, target_boot.sha1),
-            '{}:{}:{}:{}'.format(
-                boot_type, boot_device, source_boot.size, source_boot.sha1),
-            'boot.img.p')
-    else:
-      logger.info("boot image unchanged; skipping.")
+  script.Print("Installing boot image...")
+  script.WriteRawImage("/boot", "boot.img")
 
   # Do device-specific installation (eg, write radio image).
   device_specific.IncrementalOTA_InstallEnd()
